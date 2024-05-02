@@ -2,13 +2,14 @@ import os
 import requests
 import time
 import logging
+import sys
 
 from logging import StreamHandler
 from http import HTTPStatus
 from dotenv import load_dotenv
 from telebot import TeleBot
 
-from exceptions import TokenError, ResponseError
+from exceptions import ResponseError
 
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -36,21 +37,22 @@ HOMEWORK_VERDICTS = {
 }
 
 
-def check_tokens():
+def check_tokens() -> bool:
     """Функция для проверки переменных окружения."""
     logging.info('Проверка наличия переменных окружения.')
     return all((PRACTICUM_TOKEN, TELEGRAM_TOKEN, TELEGRAM_CHAT_ID))
 
 
-def get_api_answer(timestamp):
+def get_api_answer(timestamp) -> dict:
     """Функция для отправки запроса к API."""
     logging.info('Отправление запроса к API.')
     try:
-        response = requests.get(
-            url=ENDPOINT,
-            headers=HEADERS,
-            params={'from_date': timestamp}
-        )
+        params: dict = {
+            'url': ENDPOINT,
+            'headers': HEADERS,
+            'params': {'from_date': timestamp}
+        }
+        response = requests.get(**params)
         if response.status_code != HTTPStatus.OK:
             raise ResponseError('Ошибка запроса!')
         return response.json()
@@ -58,20 +60,23 @@ def get_api_answer(timestamp):
         raise ResponseError('Ошибка запроса!')
 
 
-def check_response(response):
+def check_response(response) -> list:
     """Функция для проверки ответа от API."""
     logging.info('Проверка ответа API.')
-    if 'homeworks' in response:
-        logging.info('Ответ от API получен.')
-    elif response['code'] == 'UnknownError':
-        logging.critical('Неверно указан временной промежуток!')
-    elif response['code'] == 'not_authenticated':
-        logging.critical('Токен авторизации недействителен!')
+    if not isinstance(response, dict):
+        raise TypeError
+    if 'homeworks' not in response:
+        logging.debug('Домашняя работа отсутствует в ответе API!')
+        raise ResponseError
     if not isinstance(response['homeworks'], list):
         raise TypeError
+    if not response['homeworks']:
+        logging.debug('Домашняя работа не найдена.')
+        raise ResponseError
+    return response['homeworks'][0]
 
 
-def parse_status(homework):
+def parse_status(homework) -> str:
     """Функция для формирования сообщения."""
     logging.info('Проверка статуса домашней работы.')
     if 'homework_name' not in homework:
@@ -83,7 +88,7 @@ def parse_status(homework):
     return f'Изменился статус проверки работы "{homework_name}". {verdict}'
 
 
-def send_message(bot, message):
+def send_message(bot, message) -> None:
     """Функция для отправки сообщения."""
     logging.info('Отправка сообщения о статусе домашней работы.')
     try:
@@ -97,25 +102,22 @@ def main():
     """Основная логика работы бота."""
     logging.info('Запуск бота.')
 
-    if check_tokens():
-        logging.info('Переменные окружения найдены.')
-    else:
+    if not check_tokens():
         logging.critical('Переменные окружения не найдены!')
-        raise TokenError('Переменные окружения не найдены!')
+        sys.exit()
 
     bot = TeleBot(token=TELEGRAM_TOKEN)
     timestamp = int(time.time())
+    previous_message = ''
 
     while True:
         try:
             response = get_api_answer(timestamp)
-            check_response(response)
-            if len(response['homeworks']) == 0:
-                logging.debug('Домашняя работа не найдена.')
-                raise ResponseError
-            homework = response['homeworks'][0]
+            homework = check_response(response)
             message = parse_status(homework)
-            send_message(bot, message)
+            if message != previous_message:
+                previous_message = message
+                send_message(bot, message)
 
         except Exception as error:
             message = f'Сбой в работе программы: {error}'
