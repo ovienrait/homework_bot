@@ -116,8 +116,8 @@ def main():
             homework = check_response(response)
             message = parse_status(homework)
             if message != previous_message:
-                previous_message = message
                 send_message(bot, message)
+            previous_message = message
 
         except Exception as error:
             message = f'Сбой в работе программы: {error}'
