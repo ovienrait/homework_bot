@@ -70,10 +70,7 @@ def check_response(response) -> list:
         raise ResponseError
     if not isinstance(response['homeworks'], list):
         raise TypeError
-    if not response['homeworks']:
-        logging.debug('Домашняя работа не найдена.')
-        raise ResponseError
-    return response['homeworks'][0]
+    return response['homeworks']
 
 
 def parse_status(homework) -> str:
@@ -114,13 +111,18 @@ def main():
         try:
             response = get_api_answer(timestamp)
             homework = check_response(response)
-            message = parse_status(homework)
-            if message != previous_message:
-                send_message(bot, message)
-            previous_message = message
+            if homework:
+                message = parse_status(homework[0])
+                if message != previous_message:
+                    send_message(bot, message)
+                previous_message = message
+            else:
+                logging.debug('Домашняя работа не найдена.')
 
         except Exception as error:
             message = f'Сбой в работе программы: {error}'
+            if message != previous_message:
+                send_message(bot, message)
 
         finally:
             time.sleep(RETRY_PERIOD)
